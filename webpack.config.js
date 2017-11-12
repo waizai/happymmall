@@ -2,7 +2,7 @@
 * @Author: dangxiaoli
 * @Date:   2017-11-11 21:16:12
 * @Last Modified by:   dangxiaoli
-* @Last Modified time: 2017-11-12 18:21:39
+* @Last Modified time: 2017-11-12 22:12:00
 */
 const path = require('path');
 var webpack = require('webpack');
@@ -24,11 +24,8 @@ var config = {
      },
     module: {
         loaders: [
-          // 编译css并自动添加css前缀
-            { 
-                test: /\.css$/, 
-                loader: ExtractTextPlugin.extract("style-loader","css-loader")
-            }
+            {test: /\.css$/,
+                loader: ExtractTextPlugin.extract("style-loader","css-loader")}
         ]
     },
      plugins : [
