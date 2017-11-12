@@ -16,5 +16,8 @@
     "url": "https://github.com/waizai/happymmall/issues"
   },
   "homepage": "https://github.com/waizai/happymmall#readme",
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "webpack": "1.15.0"
+  }
 }
