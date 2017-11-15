@@ -2,7 +2,7 @@
 * @Author: dangxiaoli
 * @Date:   2017-11-11 21:16:12
 * @Last Modified by:   dangxiaoli
-* @Last Modified time: 2017-11-15 00:01:54
+* @Last Modified time: 2017-11-15 00:36:25
 */
 const path = require('path');
 var webpack = require('webpack');
@@ -23,7 +23,7 @@ var getHtmlConfig = function (name) {
 
 var config = {
      entry: {
-        'common' : ['./src/pages/common/index.js'],
+        'common' : ['./src/pages/common/index.js','webpack-dev-server/client?http://localhost:8088/'],
         'index'  : ['./src/pages/index/index.js'],
         'login'  : ['./src/pages/login/index.js']
      },
