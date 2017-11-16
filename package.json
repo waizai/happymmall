@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "WEBPACK_ENV=dev webpack-dev-server --inline --port 8089",
-    "dist": "WEBPACK_ENV=online webpack -p",
+    "dist": "WEBPACK_ENV=online webpack -p"
   },
   "repository": {
     "type": "git",
