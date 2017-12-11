@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "WEBPACK_ENV=dev webpack-dev-server --inline --port 8089",
+    "happy": "WEBPACK_ENV=dev webpack-dev-server --inline --port 8088",
     "dist": "WEBPACK_ENV=online webpack -p"
   },
   "repository": {
@@ -22,7 +22,9 @@
     "css-loader": "^0.28.7",
     "extract-text-webpack-plugin": "^1.0.1",
     "file-loader": "^0.11.1",
+    "html-webpack-plugin": "^1.5.1",
     "style-loader": "^0.19.0",
-    "webpack": "1.15.0"
+    "webpack": "1.15.0",
+    "webpack-dev-server": "1.15.0"
   }
 }

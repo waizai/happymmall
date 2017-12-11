@@ -90,7 +90,7 @@
 /******/ 	__webpack_require__.c = installedModules;
 
 /******/ 	// __webpack_public_path__
-/******/ 	__webpack_require__.p = "/dist";
+/******/ 	__webpack_require__.p = "/dist/";
 
 /******/ 	// Load entry module and return exports
 /******/ 	return __webpack_require__(0);
@@ -126,133 +126,97 @@
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(__resourceQuery) {var url = __webpack_require__(3);
-	var stripAnsi = __webpack_require__(10);
-	var socket = __webpack_require__(12);
+	var SockJS = __webpack_require__(10);
+	var stripAnsi = __webpack_require__(73);
+	var scriptElements = document.getElementsByTagName("script");
+	var scriptHost = scriptElements[scriptElements.length-1].getAttribute("src").replace(/\/[^\/]+$/, "");
 
-	function getCurrentScriptSource() {
-		// `document.currentScript` is the most accurate way to find the current script,
-		// but is not supported in all browsers.
-		if(document.currentScript)
-			return document.currentScript.getAttribute("src");
-		// Fall back to getting all scripts in the document.
-		var scriptElements = document.scripts || [];
-		var currentScript = scriptElements[scriptElements.length - 1];
-		if(currentScript)
-			return currentScript.getAttribute("src");
-		// Fail as there was no script to use.
-		throw new Error("[WDS] Failed to get current script source");
-	}
+	// If this bundle is inlined, use the resource query to get the correct url.
+	// Else, get the url from the <script> this file was called with.
+	var urlParts = url.parse( true ?
+		__resourceQuery.substr(1) :
+		(scriptHost ? scriptHost : "/"), false, true
+	);
 
-	var urlParts;
-	if(true) {
-		// If this bundle is inlined, use the resource query to get the correct url.
-		urlParts = url.parse(__resourceQuery.substr(1));
-	} else {
-		// Else, get the url from the <script> this file was called with.
-		var scriptHost = getCurrentScriptSource();
-		scriptHost = scriptHost.replace(/\/[^\/]+$/, "");
-		urlParts = url.parse((scriptHost ? scriptHost : "/"), false, true);
-	}
-
+	var sock = null;
 	var hot = false;
 	var initial = true;
 	var currentHash = "";
-	var logLevel = "info";
-
-	function log(level, msg) {
-		if(logLevel === "info" && level === "info")
-			return console.log(msg);
-		if(["info", "warning"].indexOf(logLevel) >= 0 && level === "warning")
-			return console.warn(msg);
-		if(["info", "warning", "error"].indexOf(logLevel) >= 0 && level === "error")
-			return console.error(msg);
-	}
 
 	var onSocketMsg = {
 		hot: function() {
 			hot = true;
-			log("info", "[WDS] Hot Module Replacement enabled.");
+			console.log("[WDS] Hot Module Replacement enabled.");
 		},
 		invalid: function() {
-			log("info", "[WDS] App updated. Recompiling...");
+			console.log("[WDS] App updated. Recompiling...");
 		},
 		hash: function(hash) {
 			currentHash = hash;
 		},
 		"still-ok": function() {
-			log("info", "[WDS] Nothing changed.")
-		},
-		"log-level": function(level) {
-			logLevel = level;
+			console.log("[WDS] Nothing changed.")
 		},
 		ok: function() {
 			if(initial) return initial = false;
 			reloadApp();
 		},
 		warnings: function(warnings) {
-			log("info", "[WDS] Warnings while compiling.");
+			console.log("[WDS] Warnings while compiling.");
 			for(var i = 0; i < warnings.length; i++)
 				console.warn(stripAnsi(warnings[i]));
 			if(initial) return initial = false;
 			reloadApp();
 		},
 		errors: function(errors) {
-			log("info", "[WDS] Errors while compiling.");
+			console.log("[WDS] Errors while compiling.");
 			for(var i = 0; i < errors.length; i++)
 				console.error(stripAnsi(errors[i]));
 			if(initial) return initial = false;
 			reloadApp();
 		},
 		"proxy-error": function(errors) {
-			log("info", "[WDS] Proxy error.");
+			console.log("[WDS] Proxy error.");
 			for(var i = 0; i < errors.length; i++)
-				log("error", stripAnsi(errors[i]));
+				console.error(stripAnsi(errors[i]));
 			if(initial) return initial = false;
-		},
-		error: function(error) {
-			console.error(error);
-		},
-		close: function() {
-			log("error", "[WDS] Disconnected!");
 		}
 	};
 
-	var hostname = urlParts.hostname;
-	var protocol = urlParts.protocol;
+	var newConnection = function() {
+		sock = new SockJS(url.format({
+			protocol: (window.location.protocol === "https:" || urlParts.hostname === '0.0.0.0') ? window.location.protocol : urlParts.protocol,
+			auth: urlParts.auth,
+			hostname: (urlParts.hostname === '0.0.0.0') ? window.location.hostname : urlParts.hostname,
+			port: (urlParts.port === '0') ? window.location.port : urlParts.port,
+			pathname: urlParts.path == null || urlParts.path === '/' ? "/sockjs-node" : urlParts.path
+		}));
 
-	if(urlParts.hostname === '0.0.0.0') {
-		// why do we need this check?
-		// hostname n/a for file protocol (example, when using electron, ionic)
-		// see: https://github.com/webpack/webpack-dev-server/pull/384
-		if(window.location.hostname && !!~window.location.protocol.indexOf('http')) {
-			hostname = window.location.hostname;
-		}
-	}
+		sock.onclose = function() {
+			console.error("[WDS] Disconnected!");
 
-	// `hostname` can be empty when the script path is relative. In that case, specifying
-	// a protocol would result in an invalid URL.
-	// When https is used in the app, secure websockets are always necessary
-	// because the browser doesn't accept non-secure websockets.
-	if(hostname && (window.location.protocol === "https:" || urlParts.hostname === '0.0.0.0')) {
-		protocol = window.location.protocol;
-	}
+			// Try to reconnect.
+			sock = null;
+			setTimeout(function() {
+				newConnection();
+			}, 2000);
+		};
 
-	var socketUrl = url.format({
-		protocol: protocol,
-		auth: urlParts.auth,
-		hostname: hostname,
-		port: (urlParts.port === '0') ? window.location.port : urlParts.port,
-		pathname: urlParts.path == null || urlParts.path === '/' ? "/sockjs-node" : urlParts.path
-	});
+		sock.onmessage = function(e) {
+			// This assumes that all data sent via the websocket is JSON.
+			var msg = JSON.parse(e.data);
+			onSocketMsg[msg.type](msg.data);
+		};
+	};
 
-	socket(socketUrl, onSocketMsg);
+	newConnection();
 
 	function reloadApp() {
 		if(hot) {
-			log("info", "[WDS] App hot update...");
+			console.log("[WDS] App hot update...");
 			window.postMessage("webpackHotUpdate" + currentHash, "*");
 		} else {
-			log("info", "[WDS] App updated. Reloading...");
+			console.log("[WDS] App updated. Reloading...");
 			window.location.reload();
 		}
 	}
@@ -1740,80 +1704,11 @@
 /* 10 */
 /***/ (function(module, exports, __webpack_require__) {
 
-	'use strict';
-	var ansiRegex = __webpack_require__(11)();
-
-	module.exports = function (str) {
-		return typeof str === 'string' ? str.replace(ansiRegex, '') : str;
-	};
-
-
-/***/ }),
-/* 11 */
-/***/ (function(module, exports) {
-
-	'use strict';
-	module.exports = function () {
-		return /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PRZcf-nqry=><]/g;
-	};
-
-
-/***/ }),
-/* 12 */
-/***/ (function(module, exports, __webpack_require__) {
-
-	var SockJS = __webpack_require__(13);
-
-	var retries = 0;
-	var sock = null;
-
-	function socket(url, handlers) {
-		sock = new SockJS(url);
-
-		sock.onopen = function() {
-			retries = 0;
-		}
-
-		sock.onclose = function() {
-			if(retries === 0)
-				handlers.close();
-
-			// Try to reconnect.
-			sock = null;
-
-			// After 10 retries stop trying, to prevent logspam.
-			if(retries <= 10) {
-				// Exponentially increase timeout to reconnect.
-				// Respectfully copied from the package `got`.
-				var retryInMs = 1000 * Math.pow(2, retries) + Math.random() * 100;
-				retries += 1;
-
-				setTimeout(function() {
-					socket(url, handlers);
-				}, retryInMs);
-			}
-		};
-
-		sock.onmessage = function(e) {
-			// This assumes that all data sent via the websocket is JSON.
-			var msg = JSON.parse(e.data);
-			if(handlers[msg.type])
-				handlers[msg.type](msg.data);
-		};
-	}
-
-	module.exports = socket;
-
-
-/***/ }),
-/* 13 */
-/***/ (function(module, exports, __webpack_require__) {
-
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
 
-	var transportList = __webpack_require__(14);
+	var transportList = __webpack_require__(11);
 
-	module.exports = __webpack_require__(60)(transportList);
+	module.exports = __webpack_require__(57)(transportList);
 
 	// TODO can't get rid of this until all servers do
 	if ('_sockjs_onload' in global) {
@@ -1823,45 +1718,45 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 14 */
+/* 11 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
 	module.exports = [
 	  // streaming transports
-	  __webpack_require__(15)
-	, __webpack_require__(31)
-	, __webpack_require__(41)
-	, __webpack_require__(43)
-	, __webpack_require__(46)(__webpack_require__(43))
+	  __webpack_require__(12)
+	, __webpack_require__(28)
+	, __webpack_require__(38)
+	, __webpack_require__(40)
+	, __webpack_require__(43)(__webpack_require__(40))
 
 	  // polling transports
+	, __webpack_require__(50)
+	, __webpack_require__(43)(__webpack_require__(50))
+	, __webpack_require__(52)
 	, __webpack_require__(53)
-	, __webpack_require__(46)(__webpack_require__(53))
-	, __webpack_require__(55)
-	, __webpack_require__(56)
-	, __webpack_require__(46)(__webpack_require__(55))
-	, __webpack_require__(57)
+	, __webpack_require__(43)(__webpack_require__(52))
+	, __webpack_require__(54)
 	];
 
 
 /***/ }),
-/* 15 */
+/* 12 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var utils = __webpack_require__(17)
-	  , urlUtils = __webpack_require__(20)
-	  , inherits = __webpack_require__(27)
-	  , EventEmitter = __webpack_require__(28).EventEmitter
-	  , WebsocketDriver = __webpack_require__(30)
+	var utils = __webpack_require__(14)
+	  , urlUtils = __webpack_require__(17)
+	  , inherits = __webpack_require__(24)
+	  , EventEmitter = __webpack_require__(25).EventEmitter
+	  , WebsocketDriver = __webpack_require__(27)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:websocket');
+	  debug = __webpack_require__(21)('sockjs-client:websocket');
 	}
 
 	function WebSocketTransport(transUrl, ignore, options) {
@@ -1950,10 +1845,10 @@
 
 	module.exports = WebSocketTransport;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 16 */
+/* 13 */
 /***/ (function(module, exports) {
 
 	// shim for using process in browser
@@ -2143,12 +2038,12 @@
 
 
 /***/ }),
-/* 17 */
+/* 14 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
 
-	var random = __webpack_require__(18);
+	var random = __webpack_require__(15);
 
 	var onUnload = {}
 	  , afterUnload = false
@@ -2223,13 +2118,13 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 18 */
+/* 15 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
 	/* global crypto:true */
-	var crypto = __webpack_require__(19);
+	var crypto = __webpack_require__(16);
 
 	// This string has length 32, a power of 2, so the modulus doesn't introduce a
 	// bias.
@@ -2258,7 +2153,7 @@
 
 
 /***/ }),
-/* 19 */
+/* 16 */
 /***/ (function(module, exports) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
@@ -2282,16 +2177,16 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 20 */
+/* 17 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var URL = __webpack_require__(21);
+	var URL = __webpack_require__(18);
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:utils:url');
+	  debug = __webpack_require__(21)('sockjs-client:utils:url');
 	}
 
 	module.exports = {
@@ -2333,16 +2228,16 @@
 	  }
 	};
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 21 */
+/* 18 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
 
-	var required = __webpack_require__(22)
-	  , qs = __webpack_require__(23)
+	var required = __webpack_require__(19)
+	  , qs = __webpack_require__(20)
 	  , protocolre = /^([a-z][a-z0-9.+-]*:)?(\/\/)?([\S\s]*)/i
 	  , slashes = /^[A-Za-z][A-Za-z0-9+-.]*:\/\//;
 
@@ -2755,7 +2650,7 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 22 */
+/* 19 */
 /***/ (function(module, exports) {
 
 	'use strict';
@@ -2799,7 +2694,7 @@
 
 
 /***/ }),
-/* 23 */
+/* 20 */
 /***/ (function(module, exports) {
 
 	'use strict';
@@ -2877,7 +2772,7 @@
 
 
 /***/ }),
-/* 24 */
+/* 21 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {/**
@@ -2886,7 +2781,7 @@
 	 * Expose `debug()` as the module.
 	 */
 
-	exports = module.exports = __webpack_require__(25);
+	exports = module.exports = __webpack_require__(22);
 	exports.log = log;
 	exports.formatArgs = formatArgs;
 	exports.save = save;
@@ -3066,10 +2961,10 @@
 	  } catch (e) {}
 	}
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 25 */
+/* 22 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	
@@ -3085,7 +2980,7 @@
 	exports.disable = disable;
 	exports.enable = enable;
 	exports.enabled = enabled;
-	exports.humanize = __webpack_require__(26);
+	exports.humanize = __webpack_require__(23);
 
 	/**
 	 * The currently active debug mode names, and names to skip.
@@ -3277,7 +3172,7 @@
 
 
 /***/ }),
-/* 26 */
+/* 23 */
 /***/ (function(module, exports) {
 
 	/**
@@ -3435,7 +3330,7 @@
 
 
 /***/ }),
-/* 27 */
+/* 24 */
 /***/ (function(module, exports) {
 
 	if (typeof Object.create === 'function') {
@@ -3464,13 +3359,13 @@
 
 
 /***/ }),
-/* 28 */
+/* 25 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , EventTarget = __webpack_require__(29)
+	var inherits = __webpack_require__(24)
+	  , EventTarget = __webpack_require__(26)
 	  ;
 
 	function EventEmitter() {
@@ -3527,7 +3422,7 @@
 
 
 /***/ }),
-/* 29 */
+/* 26 */
 /***/ (function(module, exports) {
 
 	'use strict';
@@ -3595,7 +3490,7 @@
 
 
 /***/ }),
-/* 30 */
+/* 27 */
 /***/ (function(module, exports) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
@@ -3612,17 +3507,17 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 31 */
+/* 28 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , AjaxBasedTransport = __webpack_require__(32)
-	  , XhrReceiver = __webpack_require__(36)
-	  , XHRCorsObject = __webpack_require__(37)
-	  , XHRLocalObject = __webpack_require__(39)
-	  , browser = __webpack_require__(40)
+	var inherits = __webpack_require__(24)
+	  , AjaxBasedTransport = __webpack_require__(29)
+	  , XhrReceiver = __webpack_require__(33)
+	  , XHRCorsObject = __webpack_require__(34)
+	  , XHRLocalObject = __webpack_require__(36)
+	  , browser = __webpack_require__(37)
 	  ;
 
 	function XhrStreamingTransport(transUrl) {
@@ -3660,19 +3555,19 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 32 */
+/* 29 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , urlUtils = __webpack_require__(20)
-	  , SenderReceiver = __webpack_require__(33)
+	var inherits = __webpack_require__(24)
+	  , urlUtils = __webpack_require__(17)
+	  , SenderReceiver = __webpack_require__(30)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:ajax-based');
+	  debug = __webpack_require__(21)('sockjs-client:ajax-based');
 	}
 
 	function createAjaxSender(AjaxObject) {
@@ -3713,23 +3608,23 @@
 
 	module.exports = AjaxBasedTransport;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 33 */
+/* 30 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , urlUtils = __webpack_require__(20)
-	  , BufferedSender = __webpack_require__(34)
-	  , Polling = __webpack_require__(35)
+	var inherits = __webpack_require__(24)
+	  , urlUtils = __webpack_require__(17)
+	  , BufferedSender = __webpack_require__(31)
+	  , Polling = __webpack_require__(32)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:sender-receiver');
+	  debug = __webpack_require__(21)('sockjs-client:sender-receiver');
 	}
 
 	function SenderReceiver(transUrl, urlSuffix, senderFunc, Receiver, AjaxObject) {
@@ -3765,21 +3660,21 @@
 
 	module.exports = SenderReceiver;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 34 */
+/* 31 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , EventEmitter = __webpack_require__(28).EventEmitter
+	var inherits = __webpack_require__(24)
+	  , EventEmitter = __webpack_require__(25).EventEmitter
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:buffered-sender');
+	  debug = __webpack_require__(21)('sockjs-client:buffered-sender');
 	}
 
 	function BufferedSender(url, sender) {
@@ -3859,21 +3754,21 @@
 
 	module.exports = BufferedSender;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 35 */
+/* 32 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , EventEmitter = __webpack_require__(28).EventEmitter
+	var inherits = __webpack_require__(24)
+	  , EventEmitter = __webpack_require__(25).EventEmitter
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:polling');
+	  debug = __webpack_require__(21)('sockjs-client:polling');
 	}
 
 	function Polling(Receiver, receiveUrl, AjaxObject) {
@@ -3923,21 +3818,21 @@
 
 	module.exports = Polling;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 36 */
+/* 33 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , EventEmitter = __webpack_require__(28).EventEmitter
+	var inherits = __webpack_require__(24)
+	  , EventEmitter = __webpack_require__(25).EventEmitter
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:receiver:xhr');
+	  debug = __webpack_require__(21)('sockjs-client:receiver:xhr');
 	}
 
 	function XhrReceiver(url, AjaxObject) {
@@ -4000,16 +3895,16 @@
 
 	module.exports = XhrReceiver;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 37 */
+/* 34 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , XhrDriver = __webpack_require__(38)
+	var inherits = __webpack_require__(24)
+	  , XhrDriver = __webpack_require__(35)
 	  ;
 
 	function XHRCorsObject(method, url, payload, opts) {
@@ -4024,21 +3919,21 @@
 
 
 /***/ }),
-/* 38 */
+/* 35 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(global, process) {'use strict';
 
-	var EventEmitter = __webpack_require__(28).EventEmitter
-	  , inherits = __webpack_require__(27)
-	  , utils = __webpack_require__(17)
-	  , urlUtils = __webpack_require__(20)
+	var EventEmitter = __webpack_require__(25).EventEmitter
+	  , inherits = __webpack_require__(24)
+	  , utils = __webpack_require__(14)
+	  , urlUtils = __webpack_require__(17)
 	  , XHR = global.XMLHttpRequest
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:browser:xhr');
+	  debug = __webpack_require__(21)('sockjs-client:browser:xhr');
 	}
 
 	function AbstractXHRObject(method, url, payload, opts) {
@@ -4221,16 +4116,16 @@
 
 	module.exports = AbstractXHRObject;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }()), __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }()), __webpack_require__(13)))
 
 /***/ }),
-/* 39 */
+/* 36 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , XhrDriver = __webpack_require__(38)
+	var inherits = __webpack_require__(24)
+	  , XhrDriver = __webpack_require__(35)
 	  ;
 
 	function XHRLocalObject(method, url, payload /*, opts */) {
@@ -4247,7 +4142,7 @@
 
 
 /***/ }),
-/* 40 */
+/* 37 */
 /***/ (function(module, exports) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
@@ -4281,15 +4176,15 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 41 */
+/* 38 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , AjaxBasedTransport = __webpack_require__(32)
-	  , XhrReceiver = __webpack_require__(36)
-	  , XDRObject = __webpack_require__(42)
+	var inherits = __webpack_require__(24)
+	  , AjaxBasedTransport = __webpack_require__(29)
+	  , XhrReceiver = __webpack_require__(33)
+	  , XDRObject = __webpack_require__(39)
 	  ;
 
 	// According to:
@@ -4319,21 +4214,21 @@
 
 
 /***/ }),
-/* 42 */
+/* 39 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process, global) {'use strict';
 
-	var EventEmitter = __webpack_require__(28).EventEmitter
-	  , inherits = __webpack_require__(27)
-	  , eventUtils = __webpack_require__(17)
-	  , browser = __webpack_require__(40)
-	  , urlUtils = __webpack_require__(20)
+	var EventEmitter = __webpack_require__(25).EventEmitter
+	  , inherits = __webpack_require__(24)
+	  , eventUtils = __webpack_require__(14)
+	  , browser = __webpack_require__(37)
+	  , urlUtils = __webpack_require__(17)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:sender:xdr');
+	  debug = __webpack_require__(21)('sockjs-client:sender:xdr');
 	}
 
 	// References:
@@ -4426,19 +4321,19 @@
 
 	module.exports = XDRObject;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16), (function() { return this; }())))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13), (function() { return this; }())))
 
 /***/ }),
-/* 43 */
+/* 40 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , AjaxBasedTransport = __webpack_require__(32)
-	  , EventSourceReceiver = __webpack_require__(44)
-	  , XHRCorsObject = __webpack_require__(37)
-	  , EventSourceDriver = __webpack_require__(45)
+	var inherits = __webpack_require__(24)
+	  , AjaxBasedTransport = __webpack_require__(29)
+	  , EventSourceReceiver = __webpack_require__(41)
+	  , XHRCorsObject = __webpack_require__(34)
+	  , EventSourceDriver = __webpack_require__(42)
 	  ;
 
 	function EventSourceTransport(transUrl) {
@@ -4462,19 +4357,19 @@
 
 
 /***/ }),
-/* 44 */
+/* 41 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , EventEmitter = __webpack_require__(28).EventEmitter
-	  , EventSourceDriver = __webpack_require__(45)
+	var inherits = __webpack_require__(24)
+	  , EventEmitter = __webpack_require__(25).EventEmitter
+	  , EventSourceDriver = __webpack_require__(42)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:receiver:eventsource');
+	  debug = __webpack_require__(21)('sockjs-client:receiver:eventsource');
 	}
 
 	function EventSourceReceiver(url) {
@@ -4529,10 +4424,10 @@
 
 	module.exports = EventSourceReceiver;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 45 */
+/* 42 */
 /***/ (function(module, exports) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {module.exports = global.EventSource;
@@ -4540,14 +4435,14 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 46 */
+/* 43 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , IframeTransport = __webpack_require__(47)
-	  , objectUtils = __webpack_require__(52)
+	var inherits = __webpack_require__(24)
+	  , IframeTransport = __webpack_require__(44)
+	  , objectUtils = __webpack_require__(49)
 	  ;
 
 	module.exports = function(transport) {
@@ -4580,7 +4475,7 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 47 */
+/* 44 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
@@ -4593,19 +4488,19 @@
 	//    http://msdn.microsoft.com/en-us/library/cc197015(v=VS.85).aspx
 	//    http://stevesouders.com/misc/test-postmessage.php
 
-	var inherits = __webpack_require__(27)
-	  , JSON3 = __webpack_require__(48)
-	  , EventEmitter = __webpack_require__(28).EventEmitter
-	  , version = __webpack_require__(50)
-	  , urlUtils = __webpack_require__(20)
-	  , iframeUtils = __webpack_require__(51)
-	  , eventUtils = __webpack_require__(17)
-	  , random = __webpack_require__(18)
+	var inherits = __webpack_require__(24)
+	  , JSON3 = __webpack_require__(45)
+	  , EventEmitter = __webpack_require__(25).EventEmitter
+	  , version = __webpack_require__(47)
+	  , urlUtils = __webpack_require__(17)
+	  , iframeUtils = __webpack_require__(48)
+	  , eventUtils = __webpack_require__(14)
+	  , random = __webpack_require__(15)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:transport:iframe');
+	  debug = __webpack_require__(21)('sockjs-client:transport:iframe');
 	}
 
 	function IframeTransport(transport, transUrl, baseUrl) {
@@ -4725,17 +4620,17 @@
 
 	module.exports = IframeTransport;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 48 */
+/* 45 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;/* WEBPACK VAR INJECTION */(function(module, global) {/*! JSON v3.3.2 | http://bestiejs.github.io/json3 | Copyright 2012-2014, Kit Cambridge | http://kit.mit-license.org */
 	;(function () {
 	  // Detect the `define` function exposed by asynchronous module loaders. The
 	  // strict `define` check is necessary for compatibility with `r.js`.
-	  var isLoader = "function" === "function" && __webpack_require__(49);
+	  var isLoader = "function" === "function" && __webpack_require__(46);
 
 	  // A set of types used to distinguish objects from primitives.
 	  var objectTypes = {
@@ -5637,7 +5532,7 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(5)(module), (function() { return this; }())))
 
 /***/ }),
-/* 49 */
+/* 46 */
 /***/ (function(module, exports) {
 
 	/* WEBPACK VAR INJECTION */(function(__webpack_amd_options__) {module.exports = __webpack_amd_options__;
@@ -5645,26 +5540,26 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, {}))
 
 /***/ }),
-/* 50 */
+/* 47 */
 /***/ (function(module, exports) {
 
 	module.exports = '1.1.4';
 
 
 /***/ }),
-/* 51 */
+/* 48 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process, global) {'use strict';
 
-	var eventUtils = __webpack_require__(17)
-	  , JSON3 = __webpack_require__(48)
-	  , browser = __webpack_require__(40)
+	var eventUtils = __webpack_require__(14)
+	  , JSON3 = __webpack_require__(45)
+	  , browser = __webpack_require__(37)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:utils:iframe');
+	  debug = __webpack_require__(21)('sockjs-client:utils:iframe');
 	}
 
 	module.exports = {
@@ -5842,10 +5737,10 @@
 	    typeof global.postMessage === 'object') && (!browser.isKonqueror());
 	}
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16), (function() { return this; }())))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13), (function() { return this; }())))
 
 /***/ }),
-/* 52 */
+/* 49 */
 /***/ (function(module, exports) {
 
 	'use strict';
@@ -5875,15 +5770,15 @@
 
 
 /***/ }),
-/* 53 */
+/* 50 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , HtmlfileReceiver = __webpack_require__(54)
-	  , XHRLocalObject = __webpack_require__(39)
-	  , AjaxBasedTransport = __webpack_require__(32)
+	var inherits = __webpack_require__(24)
+	  , HtmlfileReceiver = __webpack_require__(51)
+	  , XHRLocalObject = __webpack_require__(36)
+	  , AjaxBasedTransport = __webpack_require__(29)
 	  ;
 
 	function HtmlFileTransport(transUrl) {
@@ -5906,21 +5801,21 @@
 
 
 /***/ }),
-/* 54 */
+/* 51 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process, global) {'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , iframeUtils = __webpack_require__(51)
-	  , urlUtils = __webpack_require__(20)
-	  , EventEmitter = __webpack_require__(28).EventEmitter
-	  , random = __webpack_require__(18)
+	var inherits = __webpack_require__(24)
+	  , iframeUtils = __webpack_require__(48)
+	  , urlUtils = __webpack_require__(17)
+	  , EventEmitter = __webpack_require__(25).EventEmitter
+	  , random = __webpack_require__(15)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:receiver:htmlfile');
+	  debug = __webpack_require__(21)('sockjs-client:receiver:htmlfile');
 	}
 
 	function HtmlfileReceiver(url) {
@@ -5997,19 +5892,19 @@
 
 	module.exports = HtmlfileReceiver;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16), (function() { return this; }())))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13), (function() { return this; }())))
 
 /***/ }),
-/* 55 */
+/* 52 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , AjaxBasedTransport = __webpack_require__(32)
-	  , XhrReceiver = __webpack_require__(36)
-	  , XHRCorsObject = __webpack_require__(37)
-	  , XHRLocalObject = __webpack_require__(39)
+	var inherits = __webpack_require__(24)
+	  , AjaxBasedTransport = __webpack_require__(29)
+	  , XhrReceiver = __webpack_require__(33)
+	  , XHRCorsObject = __webpack_require__(34)
+	  , XHRLocalObject = __webpack_require__(36)
 	  ;
 
 	function XhrPollingTransport(transUrl) {
@@ -6039,16 +5934,16 @@
 
 
 /***/ }),
-/* 56 */
+/* 53 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , AjaxBasedTransport = __webpack_require__(32)
-	  , XdrStreamingTransport = __webpack_require__(41)
-	  , XhrReceiver = __webpack_require__(36)
-	  , XDRObject = __webpack_require__(42)
+	var inherits = __webpack_require__(24)
+	  , AjaxBasedTransport = __webpack_require__(29)
+	  , XdrStreamingTransport = __webpack_require__(38)
+	  , XhrReceiver = __webpack_require__(33)
+	  , XDRObject = __webpack_require__(39)
 	  ;
 
 	function XdrPollingTransport(transUrl) {
@@ -6068,7 +5963,7 @@
 
 
 /***/ }),
-/* 57 */
+/* 54 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
@@ -6081,10 +5976,10 @@
 	//   o you will get a spinning cursor
 	//   o for Konqueror a dumb timer is needed to detect errors
 
-	var inherits = __webpack_require__(27)
-	  , SenderReceiver = __webpack_require__(33)
-	  , JsonpReceiver = __webpack_require__(58)
-	  , jsonpSender = __webpack_require__(59)
+	var inherits = __webpack_require__(24)
+	  , SenderReceiver = __webpack_require__(30)
+	  , JsonpReceiver = __webpack_require__(55)
+	  , jsonpSender = __webpack_require__(56)
 	  ;
 
 	function JsonPTransport(transUrl) {
@@ -6109,22 +6004,22 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 58 */
+/* 55 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process, global) {'use strict';
 
-	var utils = __webpack_require__(51)
-	  , random = __webpack_require__(18)
-	  , browser = __webpack_require__(40)
-	  , urlUtils = __webpack_require__(20)
-	  , inherits = __webpack_require__(27)
-	  , EventEmitter = __webpack_require__(28).EventEmitter
+	var utils = __webpack_require__(48)
+	  , random = __webpack_require__(15)
+	  , browser = __webpack_require__(37)
+	  , urlUtils = __webpack_require__(17)
+	  , inherits = __webpack_require__(24)
+	  , EventEmitter = __webpack_require__(25).EventEmitter
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:receiver:jsonp');
+	  debug = __webpack_require__(21)('sockjs-client:receiver:jsonp');
 	}
 
 	function JsonpReceiver(url) {
@@ -6296,21 +6191,21 @@
 
 	module.exports = JsonpReceiver;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16), (function() { return this; }())))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13), (function() { return this; }())))
 
 /***/ }),
-/* 59 */
+/* 56 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process, global) {'use strict';
 
-	var random = __webpack_require__(18)
-	  , urlUtils = __webpack_require__(20)
+	var random = __webpack_require__(15)
+	  , urlUtils = __webpack_require__(17)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:sender:jsonp');
+	  debug = __webpack_require__(21)('sockjs-client:sender:jsonp');
 	}
 
 	var form, area;
@@ -6402,38 +6297,38 @@
 	  };
 	};
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16), (function() { return this; }())))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13), (function() { return this; }())))
 
 /***/ }),
-/* 60 */
+/* 57 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process, global) {'use strict';
 
-	__webpack_require__(61);
+	__webpack_require__(58);
 
-	var URL = __webpack_require__(21)
-	  , inherits = __webpack_require__(27)
-	  , JSON3 = __webpack_require__(48)
-	  , random = __webpack_require__(18)
-	  , escape = __webpack_require__(62)
-	  , urlUtils = __webpack_require__(20)
-	  , eventUtils = __webpack_require__(17)
-	  , transport = __webpack_require__(63)
-	  , objectUtils = __webpack_require__(52)
-	  , browser = __webpack_require__(40)
-	  , log = __webpack_require__(64)
-	  , Event = __webpack_require__(65)
-	  , EventTarget = __webpack_require__(29)
-	  , loc = __webpack_require__(66)
-	  , CloseEvent = __webpack_require__(67)
-	  , TransportMessageEvent = __webpack_require__(68)
-	  , InfoReceiver = __webpack_require__(69)
+	var URL = __webpack_require__(18)
+	  , inherits = __webpack_require__(24)
+	  , JSON3 = __webpack_require__(45)
+	  , random = __webpack_require__(15)
+	  , escape = __webpack_require__(59)
+	  , urlUtils = __webpack_require__(17)
+	  , eventUtils = __webpack_require__(14)
+	  , transport = __webpack_require__(60)
+	  , objectUtils = __webpack_require__(49)
+	  , browser = __webpack_require__(37)
+	  , log = __webpack_require__(61)
+	  , Event = __webpack_require__(62)
+	  , EventTarget = __webpack_require__(26)
+	  , loc = __webpack_require__(63)
+	  , CloseEvent = __webpack_require__(64)
+	  , TransportMessageEvent = __webpack_require__(65)
+	  , InfoReceiver = __webpack_require__(66)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:main');
+	  debug = __webpack_require__(21)('sockjs-client:main');
 	}
 
 	var transports;
@@ -6573,7 +6468,7 @@
 	  this._transport.send(escape.quote(data));
 	};
 
-	SockJS.version = __webpack_require__(50);
+	SockJS.version = __webpack_require__(47);
 
 	SockJS.CONNECTING = 0;
 	SockJS.OPEN = 1;
@@ -6786,14 +6681,14 @@
 
 	module.exports = function(availableTransports) {
 	  transports = transport(availableTransports);
-	  __webpack_require__(74)(SockJS, availableTransports);
+	  __webpack_require__(71)(SockJS, availableTransports);
 	  return SockJS;
 	};
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16), (function() { return this; }())))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13), (function() { return this; }())))
 
 /***/ }),
-/* 61 */
+/* 58 */
 /***/ (function(module, exports) {
 
 	/* eslint-disable */
@@ -7251,12 +7146,12 @@
 
 
 /***/ }),
-/* 62 */
+/* 59 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var JSON3 = __webpack_require__(48);
+	var JSON3 = __webpack_require__(45);
 
 	// Some extra characters that Chrome gets wrong, and substitutes with
 	// something else on the wire.
@@ -7307,14 +7202,14 @@
 
 
 /***/ }),
-/* 63 */
+/* 60 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:utils:transport');
+	  debug = __webpack_require__(21)('sockjs-client:utils:transport');
 	}
 
 	module.exports = function(availableTransports) {
@@ -7361,10 +7256,10 @@
 	  };
 	};
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 64 */
+/* 61 */
 /***/ (function(module, exports) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
@@ -7389,7 +7284,7 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 65 */
+/* 62 */
 /***/ (function(module, exports) {
 
 	'use strict';
@@ -7417,7 +7312,7 @@
 
 
 /***/ }),
-/* 66 */
+/* 63 */
 /***/ (function(module, exports) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {'use strict';
@@ -7434,13 +7329,13 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ }),
-/* 67 */
+/* 64 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , Event = __webpack_require__(65)
+	var inherits = __webpack_require__(24)
+	  , Event = __webpack_require__(62)
 	  ;
 
 	function CloseEvent() {
@@ -7457,13 +7352,13 @@
 
 
 /***/ }),
-/* 68 */
+/* 65 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , Event = __webpack_require__(65)
+	var inherits = __webpack_require__(24)
+	  , Event = __webpack_require__(62)
 	  ;
 
 	function TransportMessageEvent(data) {
@@ -7478,25 +7373,25 @@
 
 
 /***/ }),
-/* 69 */
+/* 66 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var EventEmitter = __webpack_require__(28).EventEmitter
-	  , inherits = __webpack_require__(27)
-	  , urlUtils = __webpack_require__(20)
-	  , XDR = __webpack_require__(42)
-	  , XHRCors = __webpack_require__(37)
-	  , XHRLocal = __webpack_require__(39)
-	  , XHRFake = __webpack_require__(70)
-	  , InfoIframe = __webpack_require__(71)
-	  , InfoAjax = __webpack_require__(73)
+	var EventEmitter = __webpack_require__(25).EventEmitter
+	  , inherits = __webpack_require__(24)
+	  , urlUtils = __webpack_require__(17)
+	  , XDR = __webpack_require__(39)
+	  , XHRCors = __webpack_require__(34)
+	  , XHRLocal = __webpack_require__(36)
+	  , XHRFake = __webpack_require__(67)
+	  , InfoIframe = __webpack_require__(68)
+	  , InfoAjax = __webpack_require__(70)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:info-receiver');
+	  debug = __webpack_require__(21)('sockjs-client:info-receiver');
 	}
 
 	function InfoReceiver(baseUrl, urlInfo) {
@@ -7571,16 +7466,16 @@
 
 	module.exports = InfoReceiver;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 70 */
+/* 67 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var EventEmitter = __webpack_require__(28).EventEmitter
-	  , inherits = __webpack_require__(27)
+	var EventEmitter = __webpack_require__(25).EventEmitter
+	  , inherits = __webpack_require__(24)
 	  ;
 
 	function XHRFake(/* method, url, payload, opts */) {
@@ -7604,22 +7499,22 @@
 
 
 /***/ }),
-/* 71 */
+/* 68 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process, global) {'use strict';
 
-	var EventEmitter = __webpack_require__(28).EventEmitter
-	  , inherits = __webpack_require__(27)
-	  , JSON3 = __webpack_require__(48)
-	  , utils = __webpack_require__(17)
-	  , IframeTransport = __webpack_require__(47)
-	  , InfoReceiverIframe = __webpack_require__(72)
+	var EventEmitter = __webpack_require__(25).EventEmitter
+	  , inherits = __webpack_require__(24)
+	  , JSON3 = __webpack_require__(45)
+	  , utils = __webpack_require__(14)
+	  , IframeTransport = __webpack_require__(44)
+	  , InfoReceiverIframe = __webpack_require__(69)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:info-iframe');
+	  debug = __webpack_require__(21)('sockjs-client:info-iframe');
 	}
 
 	function InfoIframe(baseUrl, url) {
@@ -7677,19 +7572,19 @@
 
 	module.exports = InfoIframe;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16), (function() { return this; }())))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13), (function() { return this; }())))
 
 /***/ }),
-/* 72 */
+/* 69 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var inherits = __webpack_require__(27)
-	  , EventEmitter = __webpack_require__(28).EventEmitter
-	  , JSON3 = __webpack_require__(48)
-	  , XHRLocalObject = __webpack_require__(39)
-	  , InfoAjax = __webpack_require__(73)
+	var inherits = __webpack_require__(24)
+	  , EventEmitter = __webpack_require__(25).EventEmitter
+	  , JSON3 = __webpack_require__(45)
+	  , XHRLocalObject = __webpack_require__(36)
+	  , InfoAjax = __webpack_require__(70)
 	  ;
 
 	function InfoReceiverIframe(transUrl) {
@@ -7719,20 +7614,20 @@
 
 
 /***/ }),
-/* 73 */
+/* 70 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var EventEmitter = __webpack_require__(28).EventEmitter
-	  , inherits = __webpack_require__(27)
-	  , JSON3 = __webpack_require__(48)
-	  , objectUtils = __webpack_require__(52)
+	var EventEmitter = __webpack_require__(25).EventEmitter
+	  , inherits = __webpack_require__(24)
+	  , JSON3 = __webpack_require__(45)
+	  , objectUtils = __webpack_require__(49)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:info-ajax');
+	  debug = __webpack_require__(21)('sockjs-client:info-ajax');
 	}
 
 	function InfoAjax(url, AjaxObject) {
@@ -7772,26 +7667,26 @@
 
 	module.exports = InfoAjax;
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 74 */
+/* 71 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
 
-	var urlUtils = __webpack_require__(20)
-	  , eventUtils = __webpack_require__(17)
-	  , JSON3 = __webpack_require__(48)
-	  , FacadeJS = __webpack_require__(75)
-	  , InfoIframeReceiver = __webpack_require__(72)
-	  , iframeUtils = __webpack_require__(51)
-	  , loc = __webpack_require__(66)
+	var urlUtils = __webpack_require__(17)
+	  , eventUtils = __webpack_require__(14)
+	  , JSON3 = __webpack_require__(45)
+	  , FacadeJS = __webpack_require__(72)
+	  , InfoIframeReceiver = __webpack_require__(69)
+	  , iframeUtils = __webpack_require__(48)
+	  , loc = __webpack_require__(63)
 	  ;
 
 	var debug = function() {};
 	if (process.env.NODE_ENV !== 'production') {
-	  debug = __webpack_require__(24)('sockjs-client:iframe-bootstrap');
+	  debug = __webpack_require__(21)('sockjs-client:iframe-bootstrap');
 	}
 
 	module.exports = function(SockJS, availableTransports) {
@@ -7881,16 +7776,16 @@
 	  };
 	};
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(16)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(13)))
 
 /***/ }),
-/* 75 */
+/* 72 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var JSON3 = __webpack_require__(48)
-	  , iframeUtils = __webpack_require__(51)
+	var JSON3 = __webpack_require__(45)
+	  , iframeUtils = __webpack_require__(48)
 	  ;
 
 	function FacadeJS(transport) {
@@ -7914,6 +7809,28 @@
 	};
 
 	module.exports = FacadeJS;
+
+
+/***/ }),
+/* 73 */
+/***/ (function(module, exports, __webpack_require__) {
+
+	'use strict';
+	var ansiRegex = __webpack_require__(74)();
+
+	module.exports = function (str) {
+		return typeof str === 'string' ? str.replace(ansiRegex, '') : str;
+	};
+
+
+/***/ }),
+/* 74 */
+/***/ (function(module, exports) {
+
+	'use strict';
+	module.exports = function () {
+		return /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PRZcf-nqry=><]/g;
+	};
 
 
 /***/ })

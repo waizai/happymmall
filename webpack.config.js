@@ -2,7 +2,7 @@
 * @Author: dangxiaoli
 * @Date:   2017-11-11 21:16:12
 * @Last Modified by:   dangxiaoli
-* @Last Modified time: 2017-11-16 23:33:48
+* @Last Modified time: 2017-12-11 17:50:08
 */
 const path = require('path');
 var webpack = require('webpack');
@@ -32,19 +32,36 @@ var config = {
         'index'  : ['./src/pages/index/index.js'],
         'login'  : ['./src/pages/login/index.js']
      },
+     /*
+     * //__dirname表示当前文件模块所在的完整的绝对路径
+     * //path.resolve方法用于将相对路径转为绝对路径
+     * 下面的output.path相当于： 
+     * cd __dirname
+     * cd dist
+     * pwd
+     */
+    /*
+     *  publicPath指定了你在浏览器中用什么地址来引用你的静态文件，它会包括你的图片、脚本以及样式加载的地址，一般用于线上发布以及CDN部署的时候使用。
+     *  静态资源最终访问路径 = output.publicPath + 资源loader或插件等配置路径
+     */
      output: {
-         path     : path.resolve(__dirname, './dist'),
-         publicPath : '/dist',
+         path     : path.resolve(__dirname, './dist'),              
+         publicPath : '/dist/',
          filename : 'js/[name].js'
      },
      externals : {
      	jquery : 'window.jQuery'
      },
     module: {
-        loaders: [{
+        loaders: [
+            {
                 test  : /\.css$/,
-                loader : ExtractTextPlugin.extract("style-loader","css-loader"
-            )},{test: /\.(gif|jpg|png|woff|svg|eot|ttf)\??.*$/, loader: 'url-loader?limit=20000&name=resource/[name].[ext]'},
+                loader : ExtractTextPlugin.extract("style-loader","css-loader")
+            },
+            {
+                test: /\.(gif|jpg|png|woff|svg|eot|ttf)\??.*$/, 
+                loader: 'url-loader?limit=20000&name=resource/[name].[ext]'
+            },
         ]
     },
      plugins : [
