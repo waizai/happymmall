@@ -1,9 +1,13 @@
 <!doctype html>
 <html lang="en">
-<!-- <%= require('html-loader!./layout/html-head.html')  %> -->
+<head>
+	<%= require('html-loader!./layout/html-head.html')  %>
+	<title><%= htmlWebpackPlugin.options.title %></title>
+<link href="/distcss/index.css?320c78ed281ca75fd604" rel="stylesheet"></head>
+</html>
 <body>
-    hello webpacfdf~~~~~
+    hello index template
 <script type="text/javascript" src="https://cdn.bootcss.com/jquery/1.11.3/jquery.js"></script>
 
-<script src="/dist/js/base.js?7de900cd33a3e9e676b3"></script><script src="/dist/js/index.js?7de900cd33a3e9e676b3"></script></body>
+<script src="/distjs/base.js?320c78ed281ca75fd604"></script><script src="/distjs/index.js?320c78ed281ca75fd604"></script></body>
 </html>

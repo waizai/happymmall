@@ -2,10 +2,11 @@
 * @Author: dangxiaoli
 * @Date:   2017-11-12 17:57:19
 * @Last Modified by:   dangxiaoli
-* @Last Modified time: 2017-12-12 11:52:00
+* @Last Modified time: 2017-12-12 13:31:25
 */
 
 body{
-	background: url('../../image/14.jpg')
-    /* font-size: 12px; */
+	/* background: url('../../image/14.jpg'); */
+    font-size: 30px;
+    background: #fff;
 }

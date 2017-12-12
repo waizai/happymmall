@@ -2,7 +2,7 @@
 * @Author: dangxiaoli
 * @Date:   2017-11-11 21:16:12
 * @Last Modified by:   dangxiaoli
-* @Last Modified time: 2017-12-12 11:55:40
+* @Last Modified time: 2017-12-12 14:02:28
 */
 const path = require('path');
 var webpack = require('webpack');
@@ -19,6 +19,8 @@ console.log(WEBPACK_ENV)
  *  插件会自动生成html文件并将打包好的js插入文件
  *  chunks属性 : 将数组中所有片段完成打包，并用script标签将打包的js插入到生成的页面中，没有在数组中的片段，则不插入页面
  *  template : html文件的模板,根据已有的html文件生成html文件
+ *
+ *  html-webpack-plugin原生支持ejs模板
  */
 var getHtmlConfig = function (name) {
     return {
@@ -50,8 +52,9 @@ var config = {
      *  静态资源最终访问路径 = output.publicPath + 资源loader或插件等配置路径
      */
      output: {
-         path     : path.resolve(__dirname, './dist'),              
-         publicPath : '/dist/',
+         // path     : path.resolve(__dirname, './dist'),
+         path     : './dist',              
+         publicPath : '/dist',
          filename : 'js/[name].js'
      },
      externals : {
@@ -87,5 +90,12 @@ var config = {
 if(WEBPACK_ENV === 'dev'){
     config.entry.common.push('webpack-dev-server/client?http://localhost:8088/');
 }
+/*
+ *   你启动webpack-dev-server后，你在目标文件夹中是看不到编译后的文件的,实时编译后的文件都保存到了内存当中。
+ *   因此很多同学使用webpack-dev-server进行开发的时候都看不到编译后的文件
+ *   有2种方式启动webpack-dev-server
+ *       1. cmd line
+ *       2. Node.js API -- 通过npm script进行启动
+ **/
 
 module.exports = config;
