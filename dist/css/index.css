@@ -6,6 +6,6 @@
 */
 
 body{
-	background: url('../../image/14.jpg')
+	background: url(/dist/resource/14.jpg)
     /* font-size: 12px; */
 }

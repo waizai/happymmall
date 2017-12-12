@@ -2,7 +2,7 @@
 * @Author: dangxiaoli
 * @Date:   2017-11-11 21:16:12
 * @Last Modified by:   dangxiaoli
-* @Last Modified time: 2017-12-11 21:23:10
+* @Last Modified time: 2017-12-12 11:55:40
 */
 const path = require('path');
 var webpack = require('webpack');
@@ -15,6 +15,11 @@ console.log(WEBPACK_ENV)
 
 
 //获取html-webpack-plugin参数的方法
+/*  自动生成html文件的插件:HtmlWebpackPlugin
+ *  插件会自动生成html文件并将打包好的js插入文件
+ *  chunks属性 : 将数组中所有片段完成打包，并用script标签将打包的js插入到生成的页面中，没有在数组中的片段，则不插入页面
+ *  template : html文件的模板,根据已有的html文件生成html文件
+ */
 var getHtmlConfig = function (name) {
     return {
         template : './src/view/' + name + '.html',
@@ -59,7 +64,7 @@ var config = {
                 loader : ExtractTextPlugin.extract("style-loader","css-loader")
             },
             {
-                test: /\.(gif|jpg|png|woff|svg|eot|ttf)\??.*$/, 
+                test: /\.(gif|jpg|png|woff|svg|eot|ttf)\??.*$/,
                 loader: 'url-loader?limit=20000&name=resource/[name].[ext]'
             },
         ]
